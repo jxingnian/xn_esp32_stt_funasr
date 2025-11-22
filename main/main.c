@@ -2,7 +2,7 @@
  * @Author: 星年 jixingnian@gmail.com
  * @Date: 2025-11-22 13:43:50
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-22 14:51:48
+ * @LastEditTime: 2025-11-22 18:42:45
  * @FilePath: \xn_web_wifi_config\main\main.c
  * @Description: esp32 网页WiFi配网 By.星年
  */
@@ -13,8 +13,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
+#include "xn_wifi_manage.h"
 
 void app_main(void)
 {
     printf("esp32 网页WiFi配网 By.星年\n");
+    esp_err_t ret = xn_wifi_manage_init(NULL);
+    (void)ret; 
 }

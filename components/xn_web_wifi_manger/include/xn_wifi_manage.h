@@ -2,7 +2,7 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-22 16:24:42
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-22 17:41:03
+ * @LastEditTime: 2025-11-22 19:05:46
  * @FilePath: \xn_web_wifi_config\components\xn_web_wifi_manger\include\xn_wifi_manage.h
  * @Description: 提供管理wifi的接口
  * 
@@ -37,7 +37,7 @@ typedef struct {
     char ap_password[64];                   ///< 配网AP热点密码
     char ap_ip[16];                         ///< 配网IP地址
     wifi_event_cb_t wifi_event_cb;          ///< wifi管理事件回调
-    int save_wifi_count;                    ///< wifi保存数量
+    int save_wifi_count;                    ///< wifi保存数量（超过20时，建议增加状态机栈空间）
 } wifi_manage_config_t;
  
 #define WIFI_MANAGE_DEFAULT_CONFIG()                         \
