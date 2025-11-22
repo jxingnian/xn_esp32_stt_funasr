@@ -22,9 +22,6 @@
    * 这样后续修改 id 或结构时，只需要维护这一处。
    */
   const dom = {
-    // 顶部状态概览
-    badgeDot: null,
-
     // 当前 WiFi 状态模块
     statusText: null,
     statusSsid: null,
@@ -55,8 +52,6 @@
    * 方便在后续按需扩展时保持结构清晰。
    */
   function initDom() {
-    dom.badgeDot = document.getElementById('wifi-badge-dot');
-
     dom.statusText = document.getElementById('wifi-status-text');
     dom.statusSsid = document.getElementById('wifi-status-ssid');
     dom.statusIp = document.getElementById('wifi-status-ip');
@@ -183,11 +178,6 @@
     // 运行模式：仅在后端提供 mode 字段时覆盖默认值
     if (dom.statusMode && mode) {
       dom.statusMode.textContent = mode;
-    }
-
-    // 顶部徽章小圆点：仅通过是否连接区分颜色（样式由 CSS 控制）
-    if (dom.badgeDot) {
-      dom.badgeDot.style.backgroundColor = connected ? '#22c55e' : '#f97316';
     }
 
     // 信号条亮度按 RSSI 粗略映射

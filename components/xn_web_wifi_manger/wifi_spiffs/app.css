@@ -2,7 +2,7 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-22 21:40:00
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-22 21:40:00
+ * @LastEditTime: 2025-11-22 22:19:46
  * @FilePath: \xn_web_wifi_config\components\xn_web_wifi_manger\wifi_spiffs\app.css
  * @Description: Web 配网页面的基础样式（暗色主题 + 简洁卡片布局）
  *
@@ -69,18 +69,13 @@ textarea {
   font-weight: 600;
 }
 
-.page-subtitle {
-  font-size: 13px;
-  color: #9ca3af;
-}
-
 .page-main {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-/* -------------------- 通用卡片与徽章 -------------------- */
+/* -------------------- 通用卡片 -------------------- */
 
 .card {
   background: rgba(15, 23, 42, 0.96);
@@ -110,23 +105,6 @@ textarea {
 
 .card-body {
   font-size: 13px;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  font-size: 11px;
-  gap: 4px;
-}
-
-.badge-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #f97316; /* 默认视为未连接，可在 JS 中按需切换 */
 }
 
 /* -------------------- 状态模块布局 -------------------- */
