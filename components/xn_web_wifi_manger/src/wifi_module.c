@@ -10,6 +10,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -498,5 +499,62 @@ esp_err_t xn_wifi_module_connect(const char *ssid, const char *password)
         return ret;
     }
 
+    return ESP_OK;
+}
+
+esp_err_t xn_wifi_module_scan(wifi_module_scan_result_t *results, uint16_t *count_inout)
+{
+    if (!s_wifi_inited || !s_wifi_cfg.enable_sta || results == NULL || count_inout == NULL || *count_inout == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_scan_config_t scan_cfg = { 0 };
+    esp_err_t          ret      = esp_wifi_scan_start(&scan_cfg, true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi scan start failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    uint16_t ap_num = 0;
+    ret             = esp_wifi_scan_get_ap_num(&ap_num);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi scan get num failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    if (ap_num == 0) {
+        *count_inout = 0;
+        return ESP_OK;
+    }
+
+    uint16_t max_out = *count_inout;
+    if (max_out == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (ap_num > max_out) {
+        ap_num = max_out;
+    }
+
+    wifi_ap_record_t *ap_list = calloc(ap_num, sizeof(wifi_ap_record_t));
+    if (ap_list == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    ret = esp_wifi_scan_get_ap_records(&ap_num, ap_list);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi scan get records failed: %s", esp_err_to_name(ret));
+        free(ap_list);
+        return ret;
+    }
+
+    for (uint16_t i = 0; i < ap_num; ++i) {
+        memset(results[i].ssid, 0, sizeof(results[i].ssid));
+        strncpy(results[i].ssid, (const char *)ap_list[i].ssid, sizeof(results[i].ssid) - 1);
+        results[i].rssi = ap_list[i].rssi;
+    }
+
+    *count_inout = ap_num;
+    free(ap_list);
     return ESP_OK;
 }

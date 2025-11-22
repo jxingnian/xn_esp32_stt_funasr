@@ -2,7 +2,7 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-22 16:37:33
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-22 17:48:19
+ * @LastEditTime: 2025-11-22 19:52:24
  * @FilePath: \xn_web_wifi_config\components\xn_web_wifi_manger\include\wifi_module.h
  * @Description: WiFi 模块
  * 
@@ -55,6 +55,14 @@ typedef struct {
 } wifi_module_config_t;
 
 /**
+ * @brief WiFi 扫描结果
+ */
+typedef struct {
+    char  ssid[32];   ///< 扫描到的 AP SSID
+    int8_t rssi;      ///< 信号强度（dBm）
+} wifi_module_scan_result_t;
+
+/**
  * @brief WiFi 模块默认配置
  *
  * 该宏提供一份合理的默认配置，便于上层在不关心细节时快速初始化：
@@ -96,5 +104,14 @@ esp_err_t xn_wifi_module_init(const wifi_module_config_t *config);
  *         - 其它错误码       : 参数错误或硬件/驱动未就绪
  */
 esp_err_t xn_wifi_module_connect(const char *ssid, const char *password);
+
+/**
+ * @brief 扫描附近 WiFi 列表
+ *
+ * @param results      调用方提供的结果数组
+ * @param count_inout  输入：数组容量；输出：实际返回的数量
+ * @return esp_err_t
+ */
+esp_err_t xn_wifi_module_scan(wifi_module_scan_result_t *results, uint16_t *count_inout);
 
 #endif

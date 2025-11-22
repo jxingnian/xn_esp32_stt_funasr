@@ -23,22 +23,71 @@
 #define WEB_MODULE_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "esp_err.h"
+
+/**
+ * @brief Web 扫描结果
+ */
+typedef struct {
+    char   ssid[32];  ///< AP 名称
+    int8_t rssi;      ///< 信号强度
+} web_scan_result_t;
+
+/**
+ * @brief Web 已保存 WiFi 条目
+ */
+typedef struct {
+    char ssid[32];    ///< 已保存的 WiFi 名称
+} web_saved_wifi_t;
+
+/**
+ * @brief Web 展示用的 WiFi 状态
+ */
+typedef struct {
+    bool  connected;      ///< 是否已连接
+    char  ssid[32];       ///< 当前连接的 SSID
+    char  ip[16];         ///< 当前 IP 地址
+    int8_t rssi;          ///< 信号强度
+    char  bssid[18];      ///< BSSID 字符串表示
+} web_wifi_status_t;
+
+typedef esp_err_t (*web_scan_cb_t)(web_scan_result_t *list, uint16_t *count_inout);
+typedef esp_err_t (*web_configure_cb_t)(const char *ssid, const char *password);
+typedef esp_err_t (*web_get_status_cb_t)(web_wifi_status_t *status);
+typedef esp_err_t (*web_get_saved_cb_t)(web_saved_wifi_t *list, uint8_t *count_inout);
+typedef esp_err_t (*web_connect_saved_cb_t)(const char *ssid);
+typedef esp_err_t (*web_delete_saved_cb_t)(const char *ssid);
+typedef esp_err_t (*web_reset_retry_cb_t)(void);
 
 /**
  * @brief Web 配网模块配置
  */
 typedef struct {
-    uint16_t http_port;   ///< HTTP 服务器监听端口，一般为 80
+    uint16_t http_port;               ///< HTTP 服务器监听端口，一般为 80
+    web_scan_cb_t          scan_cb;   ///< 扫描附近 WiFi 的回调
+    web_configure_cb_t     configure_cb;    ///< 提交新配置的回调
+    web_get_status_cb_t    get_status_cb;   ///< 获取当前状态的回调
+    web_get_saved_cb_t     get_saved_cb;    ///< 获取已保存 WiFi 列表的回调
+    web_connect_saved_cb_t connect_saved_cb;///< 连接到已保存 WiFi 的回调
+    web_delete_saved_cb_t  delete_saved_cb; ///< 删除已保存 WiFi 的回调
+    web_reset_retry_cb_t   reset_retry_cb;  ///< 重置重试计数的回调
 } web_module_config_t;
 
 /**
  * @brief Web 模块默认配置
  */
-#define WEB_MODULE_DEFAULT_CONFIG()    \
-    (web_module_config_t){             \
-        .http_port = 80,               \
+#define WEB_MODULE_DEFAULT_CONFIG()            \
+    (web_module_config_t){                     \
+        .http_port        = 80,                \
+        .scan_cb          = NULL,              \
+        .configure_cb     = NULL,              \
+        .get_status_cb    = NULL,              \
+        .get_saved_cb     = NULL,              \
+        .connect_saved_cb = NULL,              \
+        .delete_saved_cb  = NULL,              \
+        .reset_retry_cb   = NULL,              \
     }
 
 /**

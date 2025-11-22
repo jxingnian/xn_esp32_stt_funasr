@@ -9,11 +9,13 @@
 
 #include <string.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "esp_wifi.h"
+#include "esp_netif.h"
 
 #include "wifi_module.h"
 #include "storage_module.h"
@@ -32,6 +34,196 @@ static TaskHandle_t s_wifi_manage_task = NULL;   /* WiFi 管理任务句柄 */
 static bool       s_wifi_connecting   = false;  /* 是否有连接正在进行 */
 static uint8_t    s_wifi_try_index    = 0;      /* 当前尝试的 WiFi 下标 */
 static TickType_t s_connect_failed_ts = 0;      /* 进入 CONNECT_FAILED 状态的时间戳 */
+
+/* Web 模块回调实现：扫描附近 WiFi */
+static esp_err_t web_cb_scan(web_scan_result_t *list, uint16_t *count_inout)
+{
+    if (list == NULL || count_inout == NULL || *count_inout == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint16_t                     count = *count_inout;
+    wifi_module_scan_result_t   *tmp   = (wifi_module_scan_result_t *)calloc(count, sizeof(wifi_module_scan_result_t));
+    if (tmp == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t ret = xn_wifi_module_scan(tmp, &count);
+    if (ret != ESP_OK) {
+        free(tmp);
+        return ret;
+    }
+
+    for (uint16_t i = 0; i < count; ++i) {
+        memset(list[i].ssid, 0, sizeof(list[i].ssid));
+        strncpy(list[i].ssid, tmp[i].ssid, sizeof(list[i].ssid) - 1);
+        list[i].rssi = tmp[i].rssi;
+    }
+
+    *count_inout = count;
+    free(tmp);
+    return ESP_OK;
+}
+
+/* Web 模块回调：提交新的 WiFi 配置 */
+static esp_err_t web_cb_configure(const char *ssid, const char *password)
+{
+    return xn_wifi_module_connect(ssid, password);
+}
+
+/* Web 模块回调：获取当前 WiFi 状态 */
+static esp_err_t web_cb_get_status(web_wifi_status_t *status)
+{
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(status, 0, sizeof(*status));
+
+    wifi_mode_t mode;
+    esp_err_t   ret = esp_wifi_get_mode(&mode);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (mode != WIFI_MODE_STA && mode != WIFI_MODE_APSTA) {
+        status->connected = false;
+        return ESP_OK;
+    }
+
+    wifi_ap_record_t ap_info;
+    ret = esp_wifi_sta_get_ap_info(&ap_info);
+    if (ret != ESP_OK) {
+        status->connected = false;
+        return ESP_OK;
+    }
+
+    status->connected = true;
+    strncpy(status->ssid, (const char *)ap_info.ssid, sizeof(status->ssid) - 1);
+    status->rssi = ap_info.rssi;
+
+    esp_netif_ip_info_t ip_info = {0};
+    esp_netif_t        *netif   = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif != NULL) {
+        esp_netif_get_ip_info(netif, &ip_info);
+    }
+
+    snprintf(status->ip,
+             sizeof(status->ip),
+             "%d.%d.%d.%d",
+             IP2STR(&ip_info.ip));
+
+    snprintf(status->bssid,
+             sizeof(status->bssid),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             ap_info.bssid[0],
+             ap_info.bssid[1],
+             ap_info.bssid[2],
+             ap_info.bssid[3],
+             ap_info.bssid[4],
+             ap_info.bssid[5]);
+
+    return ESP_OK;
+}
+
+/* Web 模块回调：获取已保存 WiFi 列表 */
+static esp_err_t web_cb_get_saved(web_saved_wifi_t *list, uint8_t *count_inout)
+{
+    if (list == NULL || count_inout == NULL || *count_inout == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t max_out = *count_inout;
+
+    uint8_t max_internal = (s_wifi_cfg.save_wifi_count <= 0)
+                               ? 1
+                               : (uint8_t)s_wifi_cfg.save_wifi_count;
+
+    wifi_config_t *cfg_list = (wifi_config_t *)calloc(max_internal, sizeof(wifi_config_t));
+    if (cfg_list == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t   count = 0;
+    esp_err_t ret   = xn_wifi_storage_load_all(cfg_list, &count);
+    if (ret != ESP_OK) {
+        free(cfg_list);
+        return ret;
+    }
+
+    if (count == 0) {
+        *count_inout = 0;
+        free(cfg_list);
+        return ESP_OK;
+    }
+
+    if (count > max_out) {
+        count = max_out;
+    }
+
+    for (uint8_t i = 0; i < count; ++i) {
+        memset(list[i].ssid, 0, sizeof(list[i].ssid));
+        strncpy(list[i].ssid, (const char *)cfg_list[i].sta.ssid, sizeof(list[i].ssid) - 1);
+    }
+
+    *count_inout = count;
+    free(cfg_list);
+    return ESP_OK;
+}
+
+/* Web 模块回调：根据保存的配置连接 WiFi */
+static esp_err_t web_cb_connect_saved(const char *ssid)
+{
+    if (ssid == NULL || ssid[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t max_internal = (s_wifi_cfg.save_wifi_count <= 0)
+                               ? 1
+                               : (uint8_t)s_wifi_cfg.save_wifi_count;
+
+    wifi_config_t *cfg_list = (wifi_config_t *)calloc(max_internal, sizeof(wifi_config_t));
+    if (cfg_list == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t   count = 0;
+    esp_err_t ret   = xn_wifi_storage_load_all(cfg_list, &count);
+    if (ret != ESP_OK) {
+        free(cfg_list);
+        return ret;
+    }
+
+    for (uint8_t i = 0; i < count; ++i) {
+        if (strncmp((const char *)cfg_list[i].sta.ssid, ssid, sizeof(cfg_list[i].sta.ssid)) == 0) {
+            const char *pwd = (cfg_list[i].sta.password[0] == '\0')
+                                  ? NULL
+                                  : (const char *)cfg_list[i].sta.password;
+            ret            = xn_wifi_module_connect(ssid, pwd);
+            free(cfg_list);
+            return ret;
+        }
+    }
+
+    free(cfg_list);
+    return ESP_ERR_NOT_FOUND;
+}
+
+/* Web 模块回调：删除已保存 WiFi */
+static esp_err_t web_cb_delete_saved(const char *ssid)
+{
+    return xn_wifi_storage_delete_by_ssid(ssid);
+}
+
+/* Web 模块回调：重置管理状态机重试计数 */
+static esp_err_t web_cb_reset_retry(void)
+{
+    s_wifi_try_index    = 0;
+    s_wifi_connecting   = false;
+    s_connect_failed_ts = 0;
+    s_wifi_manage_state = WIFI_MANAGE_STATE_DISCONNECTED;
+    return ESP_OK;
+}
 
 /**
  * @brief WiFi 模块事件回调
@@ -253,6 +445,14 @@ esp_err_t xn_wifi_manage_init(const wifi_manage_config_t *config)
     if (s_wifi_cfg.web_port > 0 && s_wifi_cfg.web_port <= 65535) {
         web_cfg.http_port = (uint16_t)s_wifi_cfg.web_port;
     }
+    // 设置 Web 模块回调，所有实际逻辑由当前管理组件和底层模块实现
+    web_cfg.scan_cb          = web_cb_scan;
+    web_cfg.configure_cb     = web_cb_configure;
+    web_cfg.get_status_cb    = web_cb_get_status;
+    web_cfg.get_saved_cb     = web_cb_get_saved;
+    web_cfg.connect_saved_cb = web_cb_connect_saved;
+    web_cfg.delete_saved_cb  = web_cb_delete_saved;
+    web_cfg.reset_retry_cb   = web_cb_reset_retry;
 
     ret = xn_web_module_start(&web_cfg);
     if (ret != ESP_OK) {

@@ -81,4 +81,12 @@ esp_err_t xn_wifi_storage_load_all(wifi_config_t *configs, uint8_t *count_out);
  */
 esp_err_t xn_wifi_storage_on_connected(const wifi_config_t *config);
 
+/**
+ * @brief 按 SSID 删除已保存的 WiFi 配置
+ *
+ * @param ssid 要删除的 WiFi 名称
+ * @return esp_err_t
+ */
+esp_err_t xn_wifi_storage_delete_by_ssid(const char *ssid);
+
 #endif

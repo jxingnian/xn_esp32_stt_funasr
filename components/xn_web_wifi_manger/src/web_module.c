@@ -12,17 +12,13 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "esp_wifi.h"
-#include "esp_netif.h"
 #include "esp_http_server.h"
 #include "esp_spiffs.h"
 
-#include "wifi_module.h"
-#include "storage_module.h"
-
 static const char *TAG = "web_module";
 
-static httpd_handle_t s_httpd = NULL;
+static httpd_handle_t     s_httpd = NULL;
+static web_module_config_t s_cfg;
 
 /* 简单的 JSON 响应工具 */
 static esp_err_t web_send_json(httpd_req_t *req, const char *json)
@@ -60,48 +56,39 @@ static esp_err_t web_handle_root(httpd_req_t *req)
 /* /scan: 扫描附近 WiFi，返回 JSON */
 static esp_err_t web_handle_scan(httpd_req_t *req)
 {
-    wifi_scan_config_t scan_cfg = { 0 };
-    esp_err_t          ret      = esp_wifi_scan_start(&scan_cfg, true);
+    if (s_cfg.scan_cb == NULL) {
+        return web_send_json(req, "{\"status\":\"error\",\"message\":\"scan cb null\"}");
+    }
+
+    web_scan_result_t list[16];
+    uint16_t          count = sizeof(list) / sizeof(list[0]);
+
+    esp_err_t ret = s_cfg.scan_cb(list, &count);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "wifi scan start failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "scan cb failed: %s", esp_err_to_name(ret));
         return web_send_json(req, "{\"status\":\"error\",\"message\":\"scan failed\"}");
     }
 
-    uint16_t ap_num = 0;
-    ret             = esp_wifi_scan_get_ap_num(&ap_num);
-    if (ret != ESP_OK || ap_num == 0) {
-        return web_send_json(req, "{\"status\":\"ok\",\"networks\":[]}");
-    }
-
-    wifi_ap_record_t *ap_list = calloc(ap_num, sizeof(wifi_ap_record_t));
-    if (!ap_list) {
-        return web_send_json(req, "{\"status\":\"error\",\"message\":\"no mem\"}");
-    }
-
-    ret = esp_wifi_scan_get_ap_records(&ap_num, ap_list);
-    if (ret != ESP_OK) {
-        free(ap_list);
-        return web_send_json(req, "{\"status\":\"error\",\"message\":\"scan get failed\"}");
-    }
-
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr_chunk(req, "{\"status\":\"ok\",\"networks\":[");
+    httpd_resp_sendstr_chunk(req, "{\"status\":\"ok\",\"networks\":["); // Fix typo in JSON key
 
-    for (uint16_t i = 0; i < ap_num; ++i) {
+    for (uint16_t i = 0; i < count; ++i) {
+        if (list[i].ssid[0] == '\0') {
+            continue;
+        }
         char item[256];
         snprintf(item,
                  sizeof(item),
                  "%s{\"ssid\":\"%s\",\"rssi\":%d}",
                  (i == 0) ? "" : ",",
-                 (const char *)ap_list[i].ssid,
-                 ap_list[i].rssi);
+                 list[i].ssid,
+                 list[i].rssi);
         httpd_resp_sendstr_chunk(req, item);
     }
 
     httpd_resp_sendstr_chunk(req, "]}");
     httpd_resp_sendstr_chunk(req, NULL);
 
-    free(ap_list);
     return ESP_OK;
 }
 
@@ -158,9 +145,12 @@ static esp_err_t web_handle_configure(httpd_req_t *req)
     }
     (void)web_extract_json_string(body, "password", password, sizeof(password));
 
-    esp_err_t ret = xn_wifi_module_connect(ssid, (password[0] == '\0') ? NULL : password);
+    if (s_cfg.configure_cb == NULL) {
+        return web_send_json(req, "{\"status\":\"error\",\"message\":\"cfg cb null\"}");
+    }
+
+    esp_err_t ret = s_cfg.configure_cb(ssid, (password[0] == '\0') ? NULL : password);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "connect failed: %s", esp_err_to_name(ret));
         return web_send_json(req, "{\"status\":\"error\",\"message\":\"connect failed\"}");
     }
 
@@ -170,51 +160,31 @@ static esp_err_t web_handle_configure(httpd_req_t *req)
 /* /api/status: 返回当前 WiFi 状态 */
 static esp_err_t web_handle_status(httpd_req_t *req)
 {
-    wifi_ap_record_t ap_info;
-    wifi_mode_t      mode;
-    esp_err_t        ret;
+    if (s_cfg.get_status_cb == NULL) {
+        return web_send_json(req, "{\"status\":\"disconnected\"}");
+    }
 
-    ret = esp_wifi_get_mode(&mode);
+    web_wifi_status_t status;
+    memset(&status, 0, sizeof(status));
+
+    esp_err_t ret = s_cfg.get_status_cb(&status);
     if (ret != ESP_OK) {
         return web_send_json(req, "{\"status\":\"error\"}");
     }
 
-    if (mode != WIFI_MODE_STA && mode != WIFI_MODE_APSTA) {
+    if (!status.connected) {
         return web_send_json(req, "{\"status\":\"disconnected\"}");
     }
-
-    ret = esp_wifi_sta_get_ap_info(&ap_info);
-    if (ret != ESP_OK) {
-        return web_send_json(req, "{\"status\":\"disconnected\"}");
-    }
-
-    esp_netif_ip_info_t ip_info;
-    memset(&ip_info, 0, sizeof(ip_info));
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (netif) {
-        esp_netif_get_ip_info(netif, &ip_info);
-    }
-
-    char ip_str[16] = "0.0.0.0";
-    snprintf(ip_str,
-             sizeof(ip_str),
-             "%d.%d.%d.%d",
-             IP2STR(&ip_info.ip));
 
     char json[256];
     snprintf(json,
              sizeof(json),
              "{\"status\":\"connected\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
-             "\"bssid\":\"%02X:%02X:%02X:%02X:%02X:%02X\"}",
-             (const char *)ap_info.ssid,
-             ip_str,
-             ap_info.rssi,
-             ap_info.bssid[0],
-             ap_info.bssid[1],
-             ap_info.bssid[2],
-             ap_info.bssid[3],
-             ap_info.bssid[4],
-             ap_info.bssid[5]);
+             "\"bssid\":\"%s\"}",
+             status.ssid,
+             status.ip,
+             status.rssi,
+             status.bssid);
 
     return web_send_json(req, json);
 }
@@ -222,16 +192,15 @@ static esp_err_t web_handle_status(httpd_req_t *req)
 /* /api/saved: 返回已保存 WiFi 列表 */
 static esp_err_t web_handle_saved(httpd_req_t *req)
 {
-    uint8_t       max_num = 10; /* 简单给一个上限，实际由 storage 模块控制 */
-    wifi_config_t *list   = calloc(max_num, sizeof(wifi_config_t));
-    if (!list) {
+    if (s_cfg.get_saved_cb == NULL) {
         return web_send_json(req, "[]");
     }
 
-    uint8_t   count = 0;
-    esp_err_t ret   = xn_wifi_storage_load_all(list, &count);
+    web_saved_wifi_t list[16];
+    uint8_t          count = sizeof(list) / sizeof(list[0]);
+
+    esp_err_t ret = s_cfg.get_saved_cb(list, &count);
     if (ret != ESP_OK || count == 0) {
-        free(list);
         return web_send_json(req, "[]");
     }
 
@@ -239,18 +208,17 @@ static esp_err_t web_handle_saved(httpd_req_t *req)
     httpd_resp_sendstr_chunk(req, "[");
 
     for (uint8_t i = 0; i < count; ++i) {
-        char ssid[33];
-        memcpy(ssid, list[i].sta.ssid, sizeof(list[i].sta.ssid));
-        ssid[sizeof(ssid) - 1] = '\0';
+        if (list[i].ssid[0] == '\0') {
+            continue;
+        }
         char item[64];
-        snprintf(item, sizeof(item), "%s{\"ssid\":\"%s\"}", (i == 0) ? "" : ",", ssid);
+        snprintf(item, sizeof(item), "%s{\"ssid\":\"%s\"}", (i == 0) ? "" : ",", list[i].ssid);
         httpd_resp_sendstr_chunk(req, item);
     }
 
     httpd_resp_sendstr_chunk(req, "]");
     httpd_resp_sendstr_chunk(req, NULL);
 
-    free(list);
     return ESP_OK;
 }
 
@@ -265,11 +233,11 @@ static esp_err_t web_handle_connect(httpd_req_t *req)
         return web_send_json(req, "{\"status\":\"error\",\"message\":\"ssid missing\"}");
     }
 
-    /* 这里只能按 SSID 重新发起连接，密码由存储中记录 */
-    /* 简化处理：直接调用 xn_wifi_module_connect，密码置为 NULL，
-     * 更严格做法是从存储中找到该 SSID 的完整配置后再连接。
-     */
-    esp_err_t ret = xn_wifi_module_connect(ssid, NULL);
+    if (s_cfg.connect_saved_cb == NULL) {
+        return web_send_json(req, "{\"status\":\"error\"}");
+    }
+
+    esp_err_t ret = s_cfg.connect_saved_cb(ssid);
     if (ret != ESP_OK) {
         return web_send_json(req, "{\"status\":\"error\"}");
     }
@@ -287,32 +255,24 @@ static esp_err_t web_handle_delete(httpd_req_t *req)
         return web_send_json(req, "{\"status\":\"error\",\"message\":\"ssid missing\"}");
     }
 
-    uint8_t       max_num = 10;
-    wifi_config_t *list   = calloc(max_num, sizeof(wifi_config_t));
-    if (!list) {
-        return web_send_json(req, "{\"status\":\"error\",\"message\":\"no mem\"}");
-    }
-
-    uint8_t   count = 0;
-    esp_err_t ret   = xn_wifi_storage_load_all(list, &count);
-    if (ret != ESP_OK) {
-        free(list);
+    if (s_cfg.delete_saved_cb == NULL) {
         return web_send_json(req, "{\"status\":\"error\"}");
     }
 
-    /* 重新构造一个不包含目标 SSID 的列表，并复用 xn_wifi_storage_on_connected 
-     * 由于当前存储模块没有提供“删除”接口，这里暂不写回，简单返回 ok。
-     * 后续可以在 storage_module.c 中增加按 SSID 删除的正式实现。
-     */
+    esp_err_t ret = s_cfg.delete_saved_cb(target_ssid);
+    if (ret != ESP_OK) {
+        return web_send_json(req, "{\"status\":\"error\"}");
+    }
 
-    free(list);
     return web_send_json(req, "{\"status\":\"ok\"}");
 }
 
 /* /api/reset_retry: 目前仅作为占位，具体逻辑由管理模块后续补充接口 */
 static esp_err_t web_handle_reset_retry(httpd_req_t *req)
 {
-    /* TODO: 调用 WiFi 管理模块提供的“重置重试计数/下标”接口 */
+    if (s_cfg.reset_retry_cb != NULL) {
+        (void)s_cfg.reset_retry_cb();
+    }
     return web_send_json(req, "{\"status\":\"ok\"}");
 }
 
@@ -423,6 +383,8 @@ esp_err_t xn_web_module_start(const web_module_config_t *config)
     if (config != NULL) {
         cfg = *config;
     }
+
+    s_cfg = cfg;
 
     ESP_LOGI(TAG, "web module start, http_port=%u", (unsigned)cfg.http_port);
 

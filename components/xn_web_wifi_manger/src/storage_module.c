@@ -327,3 +327,91 @@ esp_err_t xn_wifi_storage_on_connected(const wifi_config_t *config)
 
     return ESP_OK;
 }
+
+esp_err_t xn_wifi_storage_delete_by_ssid(const char *ssid)
+{
+    /* 若存储模块尚未初始化，返回状态错误 */
+    if (!s_storage_inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (ssid == NULL || ssid[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t max_num = s_storage_cfg.max_wifi_num;
+    if (max_num == 0) {
+        max_num = 1;
+    }
+
+    wifi_config_t *list = (wifi_config_t *)calloc(max_num, sizeof(wifi_config_t));
+    if (list == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t   count = 0;
+    esp_err_t ret   = xn_wifi_storage_load_all(list, &count);
+    if (ret != ESP_OK) {
+        free(list);
+        return ret;
+    }
+
+    if (count == 0) {
+        free(list);
+        return ESP_OK;
+    }
+
+    /* 构造一个目标配置，仅设置 SSID，用于复用 wifi_storage_is_same_ssid */
+    wifi_config_t target = {0};
+    strncpy((char *)target.sta.ssid, ssid, sizeof(target.sta.ssid) - 1);
+
+    uint8_t write_idx = 0;
+    for (uint8_t i = 0; i < count; ++i) {
+        if (wifi_storage_is_same_ssid(&list[i], &target)) {
+            /* 跳过要删除的条目 */
+            continue;
+        }
+        if (write_idx != i) {
+            list[write_idx] = list[i];
+        }
+        write_idx++;
+    }
+
+    nvs_handle_t handle;
+    ret = nvs_open(s_storage_cfg.nvs_namespace, NVS_READWRITE, &handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open(delete) failed: %s", esp_err_to_name(ret));
+        free(list);
+        return ret;
+    }
+
+    if (write_idx == 0) {
+        /* 已无任何配置，擦除 key */
+        ret = nvs_erase_key(handle, WIFI_LIST_KEY);
+        if (ret != ESP_OK && ret != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGE(TAG, "nvs_erase_key failed: %s", esp_err_to_name(ret));
+            nvs_close(handle);
+            free(list);
+            return ret;
+        }
+    } else {
+        size_t blob_size = write_idx * sizeof(wifi_config_t);
+        ret              = nvs_set_blob(handle, WIFI_LIST_KEY, list, blob_size);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_set_blob(delete) failed: %s", esp_err_to_name(ret));
+            nvs_close(handle);
+            free(list);
+            return ret;
+        }
+    }
+
+    ret = nvs_commit(handle);
+    nvs_close(handle);
+    free(list);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_commit(delete) failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    return ESP_OK;
+}
