@@ -22,7 +22,6 @@
 #include "wifi_module.h"
 #include "storage_module.h"
 #include "web_module.h"
-#include "dns_captive.h"
 #include "xn_wifi_manage.h"
 
 /* 日志 TAG（如需日志输出，使用 ESP_LOGx(TAG, ...)） */
@@ -563,9 +562,6 @@ esp_err_t wifi_manage_init(const wifi_manage_config_t *config)
     if (ret != ESP_OK) {
         return ret;
     }
-
-    /* 启动简易 DNS 服务，将所有域名解析到 AP IP（用于 captive portal） */
-    (void)dns_captive_start(s_wifi_cfg.ap_ip);
 
     /* ---- 初始化存储模块 ---- */
     wifi_storage_config_t storage_cfg = WIFI_STORAGE_DEFAULT_CONFIG();

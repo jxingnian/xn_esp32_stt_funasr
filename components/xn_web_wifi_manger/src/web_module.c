@@ -2,7 +2,7 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-22 21:45:00
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-23 11:42:49
+ * @LastEditTime: 2025-11-23 11:39:20
  * @FilePath: \xn_web_wifi_config\components\xn_web_wifi_manger\src\web_module.c
  * @Description: Web 配网模块实现（HTTP 服务器 + SPIFFS 静态资源）
  *
@@ -100,18 +100,6 @@ static esp_err_t web_module_serve_file(httpd_req_t *req,
 
     fclose(f);
     httpd_resp_send_chunk(req, NULL, 0); /* 告知响应结束 */
-    return ESP_OK;
-}
-
-/**
- * @brief 兜底处理未知 GET 请求：用于 captive portal，将请求重定向到首页。
- */
-static esp_err_t web_module_captive_get_handler(httpd_req_t *req)
-{
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "/index.html");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_send(req, NULL, 0);
     return ESP_OK;
 }
 
@@ -503,9 +491,6 @@ static esp_err_t web_module_start_server(void)
     /* 默认 max_uri_handlers 较小，这里适当调大以容纳所有静态资源与 API */
     config.max_uri_handlers = 12;
 
-    /* 启用 URI 通配符匹配，以便注册兜底的通配符处理函数（用于 captive portal）。 */
-    config.uri_match_fn = httpd_uri_match_wildcard;
-
     if (s_web_cfg.http_port > 0) {
         config.server_port = (uint16_t)s_web_cfg.http_port;
     }
@@ -623,15 +608,6 @@ static esp_err_t web_module_start_server(void)
         };
         httpd_register_uri_handler(s_http_server, &uri_saved_connect);
     }
-
-    /* 兜底 URI：匹配所有未被其他处理函数接管的 GET 请求，用于 captive portal。 */
-    static const httpd_uri_t uri_captive = {
-        .uri      = "/*",
-        .method   = HTTP_GET,
-        .handler  = web_module_captive_get_handler,
-        .user_ctx = NULL,
-    };
-    httpd_register_uri_handler(s_http_server, &uri_captive);
 
     return ESP_OK;
 }
