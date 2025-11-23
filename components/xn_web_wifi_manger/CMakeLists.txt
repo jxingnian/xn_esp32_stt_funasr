@@ -4,6 +4,7 @@ idf_component_register(
         "src/wifi_module.c" 
         "src/web_module.c" 
         "src/storage_module.c"
+        "src/dns_captive.c"
     INCLUDE_DIRS 
         "include"
     REQUIRES 

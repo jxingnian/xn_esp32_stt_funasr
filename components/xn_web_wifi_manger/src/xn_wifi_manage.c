@@ -2,7 +2,7 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-22 16:24:42
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-11-23 11:29:30
+ * @LastEditTime: 2025-11-23 11:41:04
  * @FilePath: \xn_web_wifi_config\components\xn_web_wifi_manger\src\xn_wifi_manage.c
  * @Description: WiFi 管理模块实现（封装 WiFi / 存储 / Web 配网，提供自动重连与状态管理）
  */
@@ -22,6 +22,7 @@
 #include "wifi_module.h"
 #include "storage_module.h"
 #include "web_module.h"
+#include "dns_captive.h"
 #include "xn_wifi_manage.h"
 
 /* 日志 TAG（如需日志输出，使用 ESP_LOGx(TAG, ...)） */
@@ -562,6 +563,9 @@ esp_err_t wifi_manage_init(const wifi_manage_config_t *config)
     if (ret != ESP_OK) {
         return ret;
     }
+
+    /* 启动简易 DNS 服务，将所有域名解析到 AP IP（用于 captive portal） */
+    (void)dns_captive_start(s_wifi_cfg.ap_ip);
 
     /* ---- 初始化存储模块 ---- */
     wifi_storage_config_t storage_cfg = WIFI_STORAGE_DEFAULT_CONFIG();
