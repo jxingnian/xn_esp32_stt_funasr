@@ -1,3 +1,3 @@
-idf_component_register(SRCS "main.c"
-                       PRIV_REQUIRES xn_web_wifi_manger xn_stt_funasr
-                       INCLUDE_DIRS "")
+idf_component_register(SRCS "main.c" "audio_app/audio_config_app.c"
+                       PRIV_REQUIRES xn_web_wifi_manger xn_stt_funasr xn_audio_manager
+                       INCLUDE_DIRS "audio_app")
