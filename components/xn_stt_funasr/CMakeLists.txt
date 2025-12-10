@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS 
+        "src/xn_stt_funasr.c"
+    INCLUDE_DIRS 
+        "include"
+    REQUIRES 
+        esp_websocket_client
+        json
+        esp_event
+)
