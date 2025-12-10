@@ -2,8 +2,8 @@
  * @Author: 星年 && jixingnian@gmail.com
  * @Date: 2025-11-27 21:48:21
  * @LastEditors: xingnian jixingnian@gmail.com
- * @LastEditTime: 2025-12-10 14:59:00
- * @FilePath: \xn_esp32_stt_funasr\main\audio_app\audio_config_app.c
+ * @LastEditTime: 2025-11-28 21:35:27
+ * @FilePath: \xn_esp32_audio\main\audio_config_app.c
  * @Description: 音频配置 - 统一构建音频管理器配置参数
  * 
  * Copyright (c) 2025 by ${git_name_email}, All Rights Reserved. 

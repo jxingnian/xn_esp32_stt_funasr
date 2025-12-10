@@ -79,32 +79,33 @@ static int32_t afe_read_callback(void *buffer, int buf_sz, void *user_ctx, TickT
     size_t mic_got = 0;
 
     // 仅在运行状态下读取数据
-    if (!wrapper->running_ptr || !(*wrapper->running_ptr)) {
-        // 未运行时不提供数据，避免在系统尚未开始监听时填满 AFE 内部缓冲区
+    if (wrapper->running_ptr && *wrapper->running_ptr) {
+        // 读取麦克风数据
+        esp_err_t ret = audio_bsp_read_mic(wrapper->bsp_handle, wrapper->mic_buffer, 
+                                         frame_samples, &mic_got);
+
+        if (ret != ESP_OK || mic_got == 0) {
+            memset(out_buf, 0, buf_sz);
+            return buf_sz;
+        }
+
+        // 读取回采数据（用于回声消除）
+        size_t ref_got = ring_buffer_read(wrapper->reference_rb, wrapper->ref_buffer, mic_got, 0);
+
+        // 如果回采数据不足，用静音填充
+        if (ref_got < mic_got) {
+            memset(wrapper->ref_buffer + ref_got, 0, (mic_got - ref_got) * sizeof(int16_t));
+        }
+
+        // 交织数据: MR 格式（M=麦克风，R=回采）
+        for (size_t i = 0; i < mic_got; i++) {
+            out_buf[i * 2 + 0] = wrapper->mic_buffer[i];  // M: 麦克风
+            out_buf[i * 2 + 1] = wrapper->ref_buffer[i];  // R: 回采
+        }
+    } else {
+        // 未运行时填充静音，并临时不向 AFE 提供有效数据，避免在系统尚未开始监听时填满内部 ringbuffer
+        memset(out_buf, 0, buf_sz);
         return 0;
-    }
-
-    // 读取麦克风数据
-    esp_err_t ret = audio_bsp_read_mic(wrapper->bsp_handle, wrapper->mic_buffer, 
-                                     frame_samples, &mic_got);
-
-    if (ret != ESP_OK || mic_got == 0) {
-        // 读取失败时返回 0，让 AFE Manager 知道没有数据可用
-        return 0;
-    }
-
-    // 读取回采数据（用于回声消除）
-    size_t ref_got = ring_buffer_read(wrapper->reference_rb, wrapper->ref_buffer, mic_got, 0);
-
-    // 如果回采数据不足，用静音填充
-    if (ref_got < mic_got) {
-        memset(wrapper->ref_buffer + ref_got, 0, (mic_got - ref_got) * sizeof(int16_t));
-    }
-
-    // 交织数据: MR 格式（M=麦克风，R=回采）
-    for (size_t i = 0; i < mic_got; i++) {
-        out_buf[i * 2 + 0] = wrapper->mic_buffer[i];  // M: 麦克风
-        out_buf[i * 2 + 1] = wrapper->ref_buffer[i];  // R: 回采
     }
 
     return mic_got * channels * sizeof(int16_t);

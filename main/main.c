@@ -36,11 +36,6 @@ static void funasr_status_callback(bool connected, void *user_data)
 {
     ESP_LOGI(TAG, "FunASR %s", connected ? "已连接" : "已断开");
     
-    if (connected) {
-        // FunASR 连接成功后，启动音频管理器
-        ESP_LOGI(TAG, "启动音频管理器");
-        audio_manager_start();
-    }
 }
 
 // ========== 音频录音回调 ==========
@@ -161,6 +156,8 @@ void app_main(void)
     // 注册录音数据回调
     audio_manager_set_record_callback(audio_record_callback, NULL);
     
+    audio_manager_start();
+
     ESP_LOGI(TAG, "音频管理器初始化成功");
     
     // 初始化 WiFi 管理器
