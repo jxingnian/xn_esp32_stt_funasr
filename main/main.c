@@ -42,13 +42,19 @@ static void funasr_status_callback(bool connected, void *user_data)
 
 static void audio_record_callback(const int16_t *pcm_data, size_t sample_count, void *user_ctx)
 {
-    if (!s_recording || !funasr_is_connected()) {
-        return;
+    // 始终消费数据,避免 AFE 缓冲区溢出
+    // 只有在录音且连接时才发送到服务器
+    if (s_recording && funasr_is_connected()) {
+        size_t bytes = sample_count * sizeof(int16_t);
+        funasr_send_audio((const uint8_t *)pcm_data, bytes);
+    } else if (s_recording && !funasr_is_connected()) {
+        // 调试:录音中但未连接
+        static uint32_t warn_count = 0;
+        if (warn_count++ % 100 == 0) {  // 每100帧打印一次,避免刷屏
+            ESP_LOGW(TAG, "录音中但 FunASR 未连接,数据未发送");
+        }
     }
-    
-    // 发送音频数据到 FunASR 服务器
-    size_t bytes = sample_count * sizeof(int16_t);
-    funasr_send_audio((const uint8_t *)pcm_data, bytes);
+    // 如果不录音,数据被丢弃,但缓冲区被清空
 }
 
 // ========== 音频事件回调 ==========
@@ -58,13 +64,19 @@ static void audio_event_callback(const audio_mgr_event_t *event, void *user_ctx)
     switch (event->type) {
     case AUDIO_MGR_EVENT_BUTTON_TRIGGER:
         ESP_LOGI(TAG, "按键触发，开始识别");
-        if (funasr_is_connected() && !s_recording) {
+        if (!funasr_is_connected()) {
+            ESP_LOGW(TAG, "⚠️ FunASR 未连接,无法开始识别");
+        } else if (s_recording) {
+            ESP_LOGW(TAG, "⚠️ 已在录音中");
+        } else {
             // 开始 FunASR 识别会话
             if (funasr_start() == ESP_OK) {
                 // 开始录音
                 audio_manager_start_recording();
                 s_recording = true;
-                ESP_LOGI(TAG, "开始录音和识别");
+                ESP_LOGI(TAG, "✅ 开始录音和识别");
+            } else {
+                ESP_LOGE(TAG, "❌ FunASR 启动失败");
             }
         }
         break;
@@ -72,10 +84,12 @@ static void audio_event_callback(const audio_mgr_event_t *event, void *user_ctx)
     case AUDIO_MGR_EVENT_BUTTON_RELEASE:
         ESP_LOGI(TAG, "按键松开");
         if (s_recording) {
-            // 停止识别
-            funasr_stop();
-            audio_manager_stop_recording();
+            // 先设置标志,停止发送数据
             s_recording = false;
+            // 停止录音
+            audio_manager_stop_recording();
+            // 最后停止识别
+            funasr_stop();
             ESP_LOGI(TAG, "停止录音和识别");
         }
         break;
@@ -105,7 +119,7 @@ static void wifi_event_callback(wifi_manage_state_t state)
             .server_url = "ws://win.xingnian.vip:10096",
             .sample_rate = 16000,
             .chunk_size = 6400,
-            .hotwords = "阿里巴巴 20",
+            .hotwords = NULL,  // 暂时禁用热词,避免服务器崩溃
             .result_cb = funasr_result_callback,
             .status_cb = funasr_status_callback,
             .user_data = NULL,

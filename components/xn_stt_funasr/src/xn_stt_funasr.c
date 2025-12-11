@@ -201,6 +201,7 @@ esp_err_t funasr_start(void)
     cJSON_AddNumberToObject(root, "audio_fs", s_ctx->config.sample_rate ? s_ctx->config.sample_rate : 16000);
     cJSON_AddBoolToObject(root, "itn", true);
     
+    // 热词保持字符串格式
     if (s_ctx->config.hotwords) {
         cJSON_AddStringToObject(root, "hotwords", s_ctx->config.hotwords);
     }
